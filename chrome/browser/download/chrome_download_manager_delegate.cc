@@ -4,6 +4,13 @@
 
 #include "chrome/browser/download/chrome_download_manager_delegate.h"
 
+#include <windows.h>
+
+#include <softpub.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <wintrust.h>
+
 #include <algorithm>
 #include <memory>
 #include <string>
@@ -413,8 +420,8 @@ void MaybeReportDangerousDownloadBlocked(
     for (const auto& metadata : scan_result->file_metadata) {
       if (enterprise_connectors::ContainsMalwareVerdict(metadata.scan_response))
         return;
+      }
     }
-  }
 
   auto* router =
       extensions::SafeBrowsingPrivateEventRouterFactory::GetForProfile(profile);
@@ -596,7 +603,7 @@ void ChromeDownloadManagerDelegate::SetNextId(uint32_t next_id) {
   id_callbacks_.swap(callbacks);
   for (auto& callback : callbacks)
     ReturnNextId(std::move(callback));
-}
+  }
 
 void ChromeDownloadManagerDelegate::GetNextId(
     content::DownloadIdCallback callback) {
@@ -621,7 +628,7 @@ void ChromeDownloadManagerDelegate::ReturnNextId(
   std::move(callback).Run(next_download_id_);
   if (next_download_id_ != download::DownloadItem::kInvalidId)
     ++next_download_id_;
-}
+  }
 
 bool ChromeDownloadManagerDelegate::DetermineDownloadTarget(
     DownloadItem* download,
@@ -1170,97 +1177,97 @@ void ChromeDownloadManagerDelegate::RequestConfirmation(
 #if BUILDFLAG(IS_ANDROID)
   content::WebContents* web_contents =
       content::DownloadItemUtils::GetWebContents(download);
-    if (reason == DownloadConfirmationReason::SAVE_AS) {
-      // If this is a 'Save As' download, just run without confirmation.
+  if (reason == DownloadConfirmationReason::SAVE_AS) {
+    // If this is a 'Save As' download, just run without confirmation.
+    std::move(callback).Run(
+        DownloadConfirmationResult::CONTINUE_WITHOUT_CONFIRMATION,
+        ui::SelectedFileInfo(suggested_path));
+    return;
+  }
+
+  if (!web_contents || reason == DownloadConfirmationReason::UNEXPECTED) {
+    // If there are no web_contents and there are no errors (ie. location
+    // dialog is only being requested because of a user preference),
+    // continue.
+    if (reason == DownloadConfirmationReason::PREFERENCE) {
       std::move(callback).Run(
           DownloadConfirmationResult::CONTINUE_WITHOUT_CONFIRMATION,
           ui::SelectedFileInfo(suggested_path));
       return;
     }
 
-    if (!web_contents || reason == DownloadConfirmationReason::UNEXPECTED) {
-      // If there are no web_contents and there are no errors (ie. location
-      // dialog is only being requested because of a user preference),
-      // continue.
-      if (reason == DownloadConfirmationReason::PREFERENCE) {
-        std::move(callback).Run(
-            DownloadConfirmationResult::CONTINUE_WITHOUT_CONFIRMATION,
-            ui::SelectedFileInfo(suggested_path));
-        return;
-      }
-
-      if (reason == DownloadConfirmationReason::TARGET_PATH_NOT_WRITEABLE) {
-        OnDownloadCanceled(download, true /* has_no_external_storage */);
-        std::move(callback).Run(DownloadConfirmationResult::CANCELED,
-                                ui::SelectedFileInfo());
-        return;
-      }
-
-      // If we cannot reserve the path and the WebContents is already gone,
-      // there is no way to prompt user for a dialog. This could happen after
-      // chrome gets killed, and user tries to resume a download while another
-      // app has created the target file (not the temporary .crdownload file).
-      OnDownloadCanceled(download, false /* has_no_external_storage */);
+    if (reason == DownloadConfirmationReason::TARGET_PATH_NOT_WRITEABLE) {
+      OnDownloadCanceled(download, true /* has_no_external_storage */);
       std::move(callback).Run(DownloadConfirmationResult::CANCELED,
                               ui::SelectedFileInfo());
       return;
     }
 
-    if (reason == DownloadConfirmationReason::TARGET_CONFLICT) {
-      // If there is a file that already has the same name, try to generate a
-      // unique name for the new download (ie. "image (1).png" vs
-      // "image.png").
-      base::FilePath download_dir;
-      if (!base::android::GetDownloadsDirectory(&download_dir)) {
-        std::move(callback).Run(DownloadConfirmationResult::CANCELED,
-                                ui::SelectedFileInfo());
-        return;
-      }
+    // If we cannot reserve the path and the WebContents is already gone,
+    // there is no way to prompt user for a dialog. This could happen after
+    // chrome gets killed, and user tries to resume a download while another
+    // app has created the target file (not the temporary .crdownload file).
+    OnDownloadCanceled(download, false /* has_no_external_storage */);
+    std::move(callback).Run(DownloadConfirmationResult::CANCELED,
+                            ui::SelectedFileInfo());
+    return;
+  }
 
-      if (!download_prefs_->PromptForDownload()) {
-        DuplicateDownloadDialogBridgeDelegate::GetInstance()->CreateDialog(
-            download, suggested_path, web_contents, std::move(callback));
-        return;
-      }
-
-      DownloadPathReservationTracker::GetReservedPath(
-          download, suggested_path, download_dir,
-          base::FilePath() /* fallback_directory */, true,
-          DownloadPathReservationTracker::UNIQUIFY,
-          base::BindOnce(
-              &ChromeDownloadManagerDelegate::GenerateUniqueFileNameDone,
-              weak_ptr_factory_.GetWeakPtr(), download->GetGuid(),
-              std::move(callback)));
+  if (reason == DownloadConfirmationReason::TARGET_CONFLICT) {
+    // If there is a file that already has the same name, try to generate a
+    // unique name for the new download (ie. "image (1).png" vs
+    // "image.png").
+    base::FilePath download_dir;
+    if (!base::android::GetDownloadsDirectory(&download_dir)) {
+      std::move(callback).Run(DownloadConfirmationResult::CANCELED,
+                              ui::SelectedFileInfo());
       return;
     }
 
-    // Figure out type of dialog and display.
+    if (!download_prefs_->PromptForDownload()) {
+      DuplicateDownloadDialogBridgeDelegate::GetInstance()->CreateDialog(
+          download, suggested_path, web_contents, std::move(callback));
+      return;
+    }
+
+    DownloadPathReservationTracker::GetReservedPath(
+        download, suggested_path, download_dir,
+        base::FilePath() /* fallback_directory */, true,
+        DownloadPathReservationTracker::UNIQUIFY,
+        base::BindOnce(
+            &ChromeDownloadManagerDelegate::GenerateUniqueFileNameDone,
+            weak_ptr_factory_.GetWeakPtr(), download->GetGuid(),
+            std::move(callback)));
+    return;
+  }
+
+  // Figure out type of dialog and display.
     DownloadLocationDialogType dialog_type =
         DownloadLocationDialogType::DEFAULT;
 
-    switch (reason) {
-      case DownloadConfirmationReason::TARGET_NO_SPACE:
-        dialog_type = DownloadLocationDialogType::LOCATION_FULL;
-        break;
+  switch (reason) {
+    case DownloadConfirmationReason::TARGET_NO_SPACE:
+      dialog_type = DownloadLocationDialogType::LOCATION_FULL;
+      break;
 
-      case DownloadConfirmationReason::TARGET_PATH_NOT_WRITEABLE:
-        dialog_type = DownloadLocationDialogType::LOCATION_NOT_FOUND;
-        break;
+    case DownloadConfirmationReason::TARGET_PATH_NOT_WRITEABLE:
+      dialog_type = DownloadLocationDialogType::LOCATION_NOT_FOUND;
+      break;
 
-      case DownloadConfirmationReason::NAME_TOO_LONG:
-        dialog_type = DownloadLocationDialogType::NAME_TOO_LONG;
-        break;
+    case DownloadConfirmationReason::NAME_TOO_LONG:
+      dialog_type = DownloadLocationDialogType::NAME_TOO_LONG;
+      break;
 
-      case DownloadConfirmationReason::PREFERENCE:
-      default:
-        break;
-    }
+    case DownloadConfirmationReason::PREFERENCE:
+    default:
+      break;
+  }
 
-    gfx::NativeWindow native_window = web_contents->GetTopLevelNativeWindow();
-    ShowDownloadDialog(
-        native_window, download->GetTotalBytes(), dialog_type, suggested_path,
-        base::BindOnce(&OnDownloadDialogClosed, std::move(callback)));
-    return;
+  gfx::NativeWindow native_window = web_contents->GetTopLevelNativeWindow();
+  ShowDownloadDialog(
+      native_window, download->GetTotalBytes(), dialog_type, suggested_path,
+      base::BindOnce(&OnDownloadDialogClosed, std::move(callback)));
+  return;
 
 #else   // BUILDFLAG(IS_ANDROID)
   // Desktop Chrome displays a file picker for all confirmation needs. We can do
@@ -1328,19 +1335,19 @@ void ChromeDownloadManagerDelegate::GenerateUniqueFileNameDone(
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   if (download::IsPathValidationSuccessful(result)) {
     if (download_prefs_->PromptForDownload()) {
-        download::DownloadItem* download =
-            download_manager_->GetDownloadByGuid(download_guid);
-        content::WebContents* web_contents =
-            download ? content::DownloadItemUtils::GetWebContents(download)
-                     : nullptr;
-        gfx::NativeWindow native_window =
-            web_contents ? web_contents->GetTopLevelNativeWindow() : nullptr;
-        // Null native window will be handled by ShowDownloadDialog().
-        ShowDownloadDialog(
-            native_window, 0 /* total_bytes */,
-            DownloadLocationDialogType::NAME_CONFLICT, target_path,
-            base::BindOnce(&OnDownloadDialogClosed, std::move(callback)));
-        return;
+      download::DownloadItem* download =
+          download_manager_->GetDownloadByGuid(download_guid);
+      content::WebContents* web_contents =
+          download ? content::DownloadItemUtils::GetWebContents(download)
+                   : nullptr;
+      gfx::NativeWindow native_window =
+          web_contents ? web_contents->GetTopLevelNativeWindow() : nullptr;
+      // Null native window will be handled by ShowDownloadDialog().
+      ShowDownloadDialog(
+          native_window, 0 /* total_bytes */,
+          DownloadLocationDialogType::NAME_CONFLICT, target_path,
+          base::BindOnce(&OnDownloadDialogClosed, std::move(callback)));
+      return;
     }
 
     // If user chose not to show download location dialog, uses current unique
@@ -1420,9 +1427,62 @@ void ChromeDownloadManagerDelegate::GetFileMimeType(
 void ChromeDownloadManagerDelegate::CheckClientDownloadDone(
     uint32_t download_id,
     safe_browsing::DownloadCheckResult result) {
+  base::ScopedAllowBlockingForTesting allow_blocking;
+
   if (!download_manager_)
     return;
   DownloadItem* item = download_manager_->GetDownload(download_id);
+
+  base::FilePath downloaded_file_path(
+      GetPlatformDownloadPath(item, PLATFORM_TARGET_PATH));
+  DCHECK(!downloaded_file_path.empty());
+
+  scoped_refptr<safe_browsing::BinaryFeatureExtractor> binary_feature_extractor(
+      new safe_browsing::BinaryFeatureExtractor());
+  safe_browsing::ClientDownloadRequest_SignatureInfo signature_info;
+  binary_feature_extractor->CheckSignature(downloaded_file_path,
+                                           &signature_info);
+
+  base::File downloaded_file(downloaded_file_path,
+                             base::File::FLAG_OPEN | base::File::FLAG_READ |
+                                 base::File::FLAG_WIN_SHARE_DELETE);
+
+  WINTRUST_FILE_INFO downloaded_file_info = {0};
+  downloaded_file_info.cbStruct = sizeof(downloaded_file_info);
+  downloaded_file_info.pcwszFilePath = downloaded_file_path.value().c_str();
+  downloaded_file_info.hFile = downloaded_file.GetPlatformFile();
+  downloaded_file_info.pgKnownSubject = NULL;
+
+  WINTRUST_DATA wintrust_data = {0};
+  wintrust_data.cbStruct = sizeof(wintrust_data);
+  wintrust_data.pPolicyCallbackData = NULL;
+  wintrust_data.pSIPClientData = NULL;
+  wintrust_data.dwUIChoice = WTD_UI_NONE;
+  wintrust_data.fdwRevocationChecks = WTD_REVOKE_NONE;
+  wintrust_data.dwUnionChoice = WTD_CHOICE_FILE;
+  wintrust_data.pFile = &downloaded_file_info;
+  wintrust_data.dwStateAction = WTD_STATEACTION_VERIFY;
+  wintrust_data.hWVTStateData = NULL;
+  wintrust_data.pwszURLReference = NULL;
+  // Javad: Disallow revocation checks over the network.
+  wintrust_data.dwProvFlags = WTD_CACHE_ONLY_URL_RETRIEVAL;
+  wintrust_data.dwUIContext = WTD_UICONTEXT_EXECUTE;
+
+  // The WINTRUST_ACTION_GENERIC_VERIFY_V2 policy verifies that the certificate
+  // chains up to a trusted root CA, and that it has appropriate permission to
+  // sign code.
+  GUID policy_guid = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+
+  LONG WinVerifyTrust_result = WinVerifyTrust(
+      static_cast<HWND>(INVALID_HANDLE_VALUE), &policy_guid, &wintrust_data);
+
+  bool isSigned = WinVerifyTrust_result != TRUST_E_NOSIGNATURE;
+
+  if (isSigned && !signature_info.trusted())
+  {
+    result = safe_browsing::DownloadCheckResult::POTENTIALLY_UNWANTED;
+  }
+
   if (!item ||
       (item->GetState() != DownloadItem::IN_PROGRESS &&
        item->GetDangerType() != download::DOWNLOAD_DANGER_TYPE_ASYNC_SCANNING &&
